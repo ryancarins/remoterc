@@ -1,9 +1,8 @@
-use std::io::Read;
 use std::path::{Path};
-use std::fs;
 use tracing_subscriber;
 
 mod file_handler;
+mod client_communication;
 
 fn main() {
     let subscriber = tracing_subscriber::fmt()
@@ -14,7 +13,15 @@ fn main() {
     .with_target(false)
     .finish();
     
+    
+    
+    
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    let file = file_handler::get_temp_file(Path::new("./testpath").to_path_buf());
+    let mut exclusions = Vec::new();
+    exclusions.push(String::from(r"target/*"));
+    exclusions.push(String::from(r"testpath/*"));
+    let file = file_handler::get_project_file(Path::new("./").to_path_buf(), &exclusions);
+
+
 }

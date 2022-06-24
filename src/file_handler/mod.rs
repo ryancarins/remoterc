@@ -1,87 +1,124 @@
+
 use std::fs::File;
+use std::io;
 use std::fs;
+use std::io::BufReader;
+use std::path::Path;
 use std::path::PathBuf;
+use flate2::bufread::ZlibDecoder;
+use tar::Archive;
 use tar::Builder;
 use tracing::{event, Level};
 use flate2::Compression;
-use flate2::write::GzEncoder;
+use flate2::write::ZlibEncoder;
 use jwalk::WalkDir;
 use std::time::{SystemTime, UNIX_EPOCH};
 use dirs::cache_dir;
+use regex::RegexSet;
 
-pub fn get_temp_file(path: PathBuf) -> File {
-    let file = create_file();
-
-    let files = get_rust_files(path);
-    create_compressed_tarball(&file, files);
-    
-    return file;
+#[derive(Debug)]
+pub enum FileHandlerError {
+    Io(io::Error),
+    Jwalk(jwalk::Error),
+    Regex(regex::Error)
 }
 
-pub fn create_file() -> File {
+pub fn get_project_file(path: PathBuf, exclusions: &Vec::<String>) -> Result<File, FileHandlerError> {
+    let file = create_file()?;
+
+    let files = get_rust_files(path, exclusions)?;
+    create_compressed_tarball(&file, files)?;
+    
+    Ok(file)
+}
+
+
+fn get_timestamp() -> u128 {
     let start = SystemTime::now();
-    let timestamp = start
+    return start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards").as_millis();
-    
-    let filepath = format!("{}.tar.gz", timestamp);
-    
-    let cache_dir = cache_dir().unwrap_or_else(|| {
-        event!(Level::ERROR, "Failed to get cachedir.");
-        panic!();
-    }).join("rrc");
-    event!(Level::INFO, "{}", cache_dir.join("rrc").join(&filepath).display());
-
-    if(!cache_dir.exists()) {
-        fs::create_dir(&cache_dir.to_str().unwrap()).unwrap_or_else(|err| {
-            event!(Level::ERROR, "Failed to create cache directory. Error: {err}");
-            panic!();
-        });
-    }
-
-    let tempfile = File::create(cache_dir.join(filepath)).unwrap_or_else(|err| {
-        event!(Level::ERROR, "Could not create filepath. Error: {err}");
-        panic!();
-    });
-    
-    return tempfile;
 }
 
-pub fn create_compressed_tarball(dest_file: &File, files: Vec<PathBuf>) {
-    let encoder = GzEncoder::new(dest_file, Compression::best());
+fn get_cache_dir() -> Result<PathBuf, FileHandlerError> {
+    let cache_dir = cache_dir().unwrap_or_else(|| {
+        event!(Level::ERROR, "Critical: Failed to get cachedir. Exiting");
+        panic!();
+    }).join("rrc");
+    
+    if !cache_dir.exists() {
+        fs::create_dir(&cache_dir).map_err(FileHandlerError::Io)?;
+    }
+    return Ok(cache_dir);
+}
+
+fn create_file() -> Result<File, FileHandlerError> {
+    
+    let filepath = format!("{}.rrc", get_timestamp());
+    
+    let cache_dir = get_cache_dir()?;
+    
+    event!(Level::INFO, "{}", cache_dir.join(&filepath).display());
+
+    let tempfile = File::create(cache_dir.join(filepath)).map_err(FileHandlerError::Io)?;
+    
+    Ok(tempfile)
+}
+
+fn create_compressed_tarball(dest_file: &File, files: Vec<PathBuf>) -> Result<(), FileHandlerError> {
+    let encoder = ZlibEncoder::new(dest_file, Compression::best());
 
     let mut tar_builder = Builder::new(encoder);
     for path in files {
-        tar_builder.append_path(path).unwrap_or_else(|err| {
-            event!(Level::ERROR, "Adding file to tarball failed. Error: {err}");
-            panic!();
-        });
+        tar_builder.append_path(path).map_err(FileHandlerError::Io)?;
     }
 
-    let zlib = tar_builder.into_inner().unwrap_or_else(|err| {
-        event!(Level::ERROR, "Tarball creation failed. Error: {err}");
-        panic!();
-    });
+    let zlib = tar_builder.into_inner().map_err(FileHandlerError::Io)?;
 
-    zlib.finish().unwrap_or_else(|err| {
-        event!(Level::ERROR, "Zlib compressed tarball creation failed. Error: {err}");
-        panic!();
-    });
+    zlib.finish().map_err(FileHandlerError::Io)?;
+
+    Ok(())
 }
 
-pub fn get_rust_files(path: PathBuf) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    for entry in WalkDir::new(path) {
-        match entry {
-            Ok(file) => {
-                paths.push(file.path().to_path_buf());
-                let path_string = paths.last().unwrap().display();
-                event!(Level::INFO, "Added file: {path_string}");
-            },
-            Err(err) => {
-                event!(Level::WARN, "Failed to read file. Error: {err}");
-            }
+fn decompress_tarball(src_file: &File) -> Result<PathBuf, FileHandlerError> {
+    let file_reader = BufReader::new(src_file);
+    let decoder = ZlibDecoder::new(file_reader);
+    let mut archive = Archive::new(decoder);
+
+    let cache_dir = get_cache_dir()?;
+    let build_dir = cache_dir.join(get_timestamp().to_string()); 
+    fs::create_dir(build_dir.clone()).map_err(FileHandlerError::Io)?;
+    
+    archive.unpack(build_dir.clone()).map_err(FileHandlerError::Io)?;
+    Ok(build_dir)
+}
+
+fn get_rust_files(path: PathBuf, exclusions: &Vec<String>) -> Result<Vec<PathBuf>, FileHandlerError> {
+    let mut paths : Vec<PathBuf> = Vec::new();
+    for file in WalkDir::new(path) {
+        paths.push(file.map_err(FileHandlerError::Jwalk)?.path());
+    }
+
+    paths = filter_paths(paths, exclusions)?;
+
+    Ok(paths)
+}
+
+fn filter_paths(paths: Vec<PathBuf>, exclusions: &Vec::<String>) -> Result<Vec<PathBuf>, FileHandlerError> {
+    let regex = RegexSet::new(exclusions).map_err(FileHandlerError::Regex)?;
+    let mut filtered_paths = Vec::new();
+
+    for path in paths {
+        if !regex.is_match(&(path.to_string_lossy())) {
+            filtered_paths.push(path);
+            event!(Level::INFO, "Added file: {}", filtered_paths.last().unwrap().display());
         }
     }
-    return paths;
+
+    Ok(filtered_paths)
+}
+
+pub fn process(file: &File) -> Result<(PathBuf), FileHandlerError> {
+    let builddir = decompress_tarball(file)?;
+    Ok((builddir))
 }
