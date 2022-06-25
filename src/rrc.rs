@@ -4,11 +4,9 @@ use std::path::Path;
 use tokio::task;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tracing::{error, info};
-use tracing_subscriber;
 
-mod communication;
-mod file_handler;
-use crate::communication::create_client_connection;
+use remoterc::communication::create_client_connection;
+use remoterc::file_handler::get_project_file;
 
 #[tokio::main]
 async fn main() {
@@ -26,11 +24,9 @@ async fn main() {
     let (client_tx, client_rx) = futures_channel::mpsc::unbounded();
     let handle = task::spawn(create_client_connection(server_rx, client_tx.clone()));
 
-    let mut exclusions = Vec::new();
-    exclusions.push(String::from(r"target/*"));
-    exclusions.push(String::from(r"testpath/*"));
+    let exclusions = vec![String::from(r"target/*"), String::from(r"testpath/*")];
 
-    let result = file_handler::get_project_file(Path::new("./").to_path_buf(), &exclusions);
+    let result = get_project_file(Path::new("./").to_path_buf(), &exclusions);
     let filepath = match result {
         Ok(file) => file,
         Err(error) => {

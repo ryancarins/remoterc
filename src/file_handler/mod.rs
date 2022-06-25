@@ -14,7 +14,7 @@ use tar::Builder;
 use tracing::{event, Level};
 
 mod file_handler_error;
-use crate::file_handler::file_handler_error::file_handler_error::FileHandlerError;
+use crate::file_handler::file_handler_error::FileHandlerError;
 
 pub fn get_project_file(
     path: PathBuf,
@@ -30,10 +30,10 @@ pub fn get_project_file(
 
 fn get_timestamp() -> u128 {
     let start = SystemTime::now();
-    return start
+    start
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
-        .as_millis();
+        .as_millis()
 }
 
 fn get_cache_dir() -> Result<PathBuf, FileHandlerError> {
@@ -48,7 +48,7 @@ fn get_cache_dir() -> Result<PathBuf, FileHandlerError> {
         fs::create_dir(&cache_dir)?;
     }
 
-    return Ok(cache_dir);
+    Ok(cache_dir)
 }
 
 fn create_file() -> Result<(File, PathBuf), FileHandlerError> {

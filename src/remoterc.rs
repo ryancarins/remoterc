@@ -1,5 +1,3 @@
-use tracing_subscriber;
-
 fn main() {
     let subscriber = tracing_subscriber::fmt()
         .compact()

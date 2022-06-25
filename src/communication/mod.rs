@@ -32,7 +32,6 @@ pub async fn create_client_connection(
             let send_result = tx_inner.start_send(message.unwrap());
             if send_result.is_err() {
                 error!("Error sending message: {}", send_result.unwrap_err());
-                return;
             }
         })
     };
