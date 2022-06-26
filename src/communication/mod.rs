@@ -185,7 +185,10 @@ async fn handle_server_connection(
 
                 info!("Build extracted to: {}", build_path.to_string_lossy());
 
-                cargo_build(build_path, false);
+                let executables = cargo_build(build_path, false, true);
+                for executable in executables {
+                    info!("To be sent: {}", executable.to_string_lossy());
+                }
             }
             _ => {}
         }
