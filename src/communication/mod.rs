@@ -12,6 +12,9 @@ use tokio::signal;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tracing::{error, info, warn};
 
+use crate::cargo::cargo_build;
+use crate::file_handler::{self, process};
+
 type Tx = UnboundedSender<Message>;
 type PeerMap = HashMap<SocketAddr, (Option<i32>, Tx)>;
 
@@ -147,15 +150,15 @@ async fn handle_server_connection(
 ) {
     info!("Incoming TCP connection from: {}", addr);
 
-    let ws_stream = tokio_tungstenite::accept_async(raw_stream)
-        .await
-        .unwrap_or_else(|err| {
-            error!(
-                "Error during the websocket handshake occurred. Err: {}",
-                err
-            );
-            panic!();
-        });
+    let result = tokio_tungstenite::accept_async(raw_stream).await;
+
+    if result.is_err() {
+        error!("Error handling connection: {}", result.unwrap_err());
+        return;
+    }
+
+    let ws_stream = result.unwrap();
+
     info!("WebSocket connection established: {}", addr);
 
     // Insert the write part of this peer to the peer map.
@@ -170,6 +173,19 @@ async fn handle_server_connection(
             }
             Message::Binary(binary) => {
                 info!("Recieved binary message of size: {}", binary.len());
+                let result = process(binary);
+
+                if result.is_err() {
+                    error!("Error: {}", result.unwrap_err());
+                    //TODO: Actuall errors
+                    return future::ok(());
+                }
+
+                let build_path = result.unwrap();
+
+                info!("Build extracted to: {}", build_path.to_string_lossy());
+
+                cargo_build(build_path, false);
             }
             _ => {}
         }

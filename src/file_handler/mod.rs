@@ -87,8 +87,8 @@ fn create_compressed_tarball(
     Ok(())
 }
 
-fn decompress_tarball(src_file: &File) -> Result<PathBuf, FileHandlerError> {
-    let file_reader = BufReader::new(src_file);
+fn decompress_tarball(src: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
+    let file_reader = BufReader::new(&*src);
     let decoder = ZlibDecoder::new(file_reader);
     let mut archive = Archive::new(decoder);
 
@@ -135,7 +135,7 @@ fn filter_paths(
     Ok(filtered_paths)
 }
 
-pub fn process(file: &File) -> Result<PathBuf, FileHandlerError> {
-    let builddir = decompress_tarball(file)?;
+pub fn process(source: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
+    let builddir = decompress_tarball(source)?;
     Ok(builddir)
 }
