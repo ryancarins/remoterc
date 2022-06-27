@@ -7,11 +7,11 @@ use regex::RegexSet;
 use std::fs;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tar::Archive;
 use tar::Builder;
-use tracing::{event, Level};
+use tracing::{event, info, Level};
 
 mod file_handler_error;
 use crate::file_handler::file_handler_error::FileHandlerError;
@@ -74,11 +74,24 @@ fn create_compressed_tarball(
     dest_file: &File,
     files: Vec<PathBuf>,
 ) -> Result<(), FileHandlerError> {
+    for path in &files {
+        info!("{}", path.to_string_lossy());
+    }
     let encoder = ZlibEncoder::new(dest_file, Compression::best());
 
     let mut tar_builder = Builder::new(encoder);
-    for path in files {
-        tar_builder.append_path(path)?;
+    if files.iter().all(|x| x.is_absolute()) {
+        for path in files {
+            let mut current = File::open(&path).unwrap();
+            tar_builder.append_file(
+                Path::new("./").join(path.file_name().unwrap()),
+                &mut current,
+            )?;
+        }
+    } else {
+        for path in files {
+            tar_builder.append_path(path)?;
+        }
     }
 
     let zlib = tar_builder.into_inner()?;
@@ -87,17 +100,12 @@ fn create_compressed_tarball(
     Ok(())
 }
 
-fn decompress_tarball(src: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
+fn decompress_tarball(src: Vec<u8>, dest: PathBuf) {
     let file_reader = BufReader::new(&*src);
     let decoder = ZlibDecoder::new(file_reader);
     let mut archive = Archive::new(decoder);
 
-    let cache_dir = get_cache_dir()?;
-    let build_dir = cache_dir.join(get_timestamp().to_string());
-    fs::create_dir(build_dir.clone())?;
-
-    archive.unpack(build_dir.clone())?;
-    Ok(build_dir)
+    archive.unpack(dest.clone()).expect("Couldn't unpack");
 }
 
 fn get_rust_files(
@@ -136,6 +144,23 @@ fn filter_paths(
 }
 
 pub fn process(source: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
-    let builddir = decompress_tarball(source)?;
-    Ok(builddir)
+    let cache_dir = get_cache_dir()?;
+    let build_dir = cache_dir.join(get_timestamp().to_string());
+    fs::create_dir(build_dir.clone())?;
+
+    decompress_tarball(source, build_dir.clone());
+
+    Ok(build_dir)
+}
+
+pub fn create_return_file(executables: Vec<PathBuf>) -> PathBuf {
+    let (file, filepath) = create_file().unwrap();
+
+    create_compressed_tarball(&file, executables).expect("Failed to create return file");
+
+    filepath
+}
+
+pub fn unzip_executables(archive: Vec<u8>, dest: PathBuf) {
+    decompress_tarball(archive, dest);
 }

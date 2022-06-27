@@ -1,8 +1,11 @@
 use futures_channel::mpsc::unbounded;
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
+use std::fs::File;
 use std::io;
+use std::io::Read;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -35,7 +38,6 @@ pub async fn create_client_connection(
     let send = rx.map(Ok).forward(write);
     let recieve = {
         read.for_each(|message| async {
-            let mut tx_inner = tx.clone();
             if message.is_err() {
                 error!(
                     "Error recieving message from build server: {}",
@@ -44,9 +46,15 @@ pub async fn create_client_connection(
                 return;
             }
 
-            let send_result = tx_inner.start_send(message.unwrap());
-            if send_result.is_err() {
-                error!("Error sending message: {}", send_result.unwrap_err());
+            let msg = message.unwrap();
+
+            match msg {
+                Message::Binary(binary) => {
+                    file_handler::unzip_executables(binary, Path::new("./").to_path_buf());
+                }
+                Message::Text(text) => {}
+                Message::Close(msg) => {}
+                _ => {}
             }
         })
     };
@@ -167,6 +175,7 @@ async fn handle_server_connection(
     let (outgoing, incoming) = ws_stream.split();
 
     let handle_incoming = incoming.try_for_each(|message| {
+        let mut inner_tx = tx.clone();
         match message {
             Message::Text(text) => {
                 info!("{text}");
@@ -185,10 +194,19 @@ async fn handle_server_connection(
 
                 info!("Build extracted to: {}", build_path.to_string_lossy());
 
-                let executables = cargo_build(build_path, false, true);
-                for executable in executables {
+                let executables =
+                    cargo_build(build_path, "x86_64-pc-windows-gnu".to_string(), false, true);
+                for executable in &executables {
                     info!("To be sent: {}", executable.to_string_lossy());
                 }
+
+                let return_file_path = file_handler::create_return_file(executables);
+
+                let mut buffer = Vec::new();
+                let mut return_file = File::open(return_file_path).unwrap();
+                return_file.read_to_end(&mut buffer).unwrap();
+
+                inner_tx.start_send(Message::Binary((buffer)));
             }
             _ => {}
         }

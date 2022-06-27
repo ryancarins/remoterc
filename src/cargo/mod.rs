@@ -3,15 +3,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use tracing::{error, info};
 
-pub fn cargo_build(builddir: PathBuf, release: bool, exe: bool) -> Vec<PathBuf> {
+pub fn cargo_build(builddir: PathBuf, toolchain: String, release: bool, exe: bool) -> Vec<PathBuf> {
     let cargo_toml = Manifest::from_path(builddir.join("Cargo.toml")).expect("No Cargo toml");
     let mut args = vec!["build".to_string()];
+
+    target_add(toolchain.clone());
 
     if release {
         args.push("--release".to_string());
     }
 
-    let mut base_command = Command::new("cargo")
+    let _command = Command::new("cargo")
         .current_dir(&builddir)
         .args(args)
         .output()
@@ -44,4 +46,20 @@ pub fn cargo_build(builddir: PathBuf, release: bool, exe: bool) -> Vec<PathBuf> 
     }
 
     executable_paths
+}
+
+fn target_add(toolchain: String) {
+    let mut args = vec![
+        "target".to_string(),
+        "add".to_string(),
+        "x86_64-pc-windows-gnu".to_string(),
+    ];
+    args.push(toolchain);
+    let _command = Command::new("rustup")
+        .args(args)
+        .output()
+        .unwrap_or_else(|err| {
+            error!("Failed to add toolchain. Error: {err}");
+            panic!();
+        });
 }
