@@ -65,7 +65,7 @@ pub async fn create_client_connection(
 
 pub async fn create_server_listener() -> Result<(), io::Error> {
     let port = 8888;
-    let addr_ipv4 = format!("127.0.0.1:{}", port);
+    let addr_ipv4 = format!("192.168.20.4:{}", port);
 
     let addr_ipv6 = format!("[::1]:{}", port);
 
@@ -195,7 +195,7 @@ async fn handle_server_connection(
                 info!("Build extracted to: {}", build_path.to_string_lossy());
 
                 let executables =
-                    cargo_build(build_path, "x86_64-pc-windows-gnu".to_string(), false, true);
+                    cargo_build(build_path, "x86_64-unknown-linux-gnu".to_string(), false, false);
                 for executable in &executables {
                     info!("To be sent: {}", executable.to_string_lossy());
                 }

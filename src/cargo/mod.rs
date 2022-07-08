@@ -9,6 +9,8 @@ pub fn cargo_build(builddir: PathBuf, toolchain: String, release: bool, exe: boo
 
     target_add(toolchain.clone());
 
+    args.push("--target".to_string());
+    args.push(toolchain);
     if release {
         args.push("--release".to_string());
     }

@@ -70,6 +70,7 @@ fn create_file() -> Result<(File, PathBuf), FileHandlerError> {
     Ok((tempfile, file_path))
 }
 
+
 fn create_compressed_tarball(
     dest_file: &File,
     files: Vec<PathBuf>,
@@ -77,6 +78,7 @@ fn create_compressed_tarball(
     for path in &files {
         info!("{}", path.to_string_lossy());
     }
+    
     let encoder = ZlibEncoder::new(dest_file, Compression::best());
 
     let mut tar_builder = Builder::new(encoder);
@@ -85,11 +87,11 @@ fn create_compressed_tarball(
             let mut current = File::open(&path).unwrap();
             tar_builder.append_file(
                 Path::new("./").join(path.file_name().unwrap()),
-                &mut current,
+                &mut current
             )?;
         }
     } else {
-        for path in files {
+        for path in files  {
             tar_builder.append_path(path)?;
         }
     }
@@ -100,32 +102,31 @@ fn create_compressed_tarball(
     Ok(())
 }
 
-fn decompress_tarball(src: Vec<u8>, dest: PathBuf) {
+
+fn decompress_tarball(src: Vec<u8>, dest: PathBuf) -> Result<(), FileHandlerError> {
     let file_reader = BufReader::new(&*src);
     let decoder = ZlibDecoder::new(file_reader);
     let mut archive = Archive::new(decoder);
 
-    archive.unpack(dest.clone()).expect("Couldn't unpack");
+    archive.unpack(dest.clone())?;
+    Ok(())
 }
 
-fn get_rust_files(
-    path: PathBuf,
-    exclusions: &Vec<String>,
-) -> Result<Vec<PathBuf>, FileHandlerError> {
+
+fn get_rust_files(path: PathBuf, exclusions: &Vec<String>) -> Result<Vec<PathBuf>, FileHandlerError> {
     let mut paths: Vec<PathBuf> = Vec::new();
     for file in WalkDir::new(path) {
         paths.push(file?.path());
     }
+    
 
     paths = filter_paths(paths, exclusions)?;
 
     Ok(paths)
 }
 
-fn filter_paths(
-    paths: Vec<PathBuf>,
-    exclusions: &Vec<String>,
-) -> Result<Vec<PathBuf>, FileHandlerError> {
+
+fn filter_paths(paths: Vec<PathBuf>, exclusions: &Vec<String>) -> Result<Vec<PathBuf>, FileHandlerError> {
     let regex = RegexSet::new(exclusions)?;
     let mut filtered_paths = Vec::new();
 
@@ -139,9 +140,12 @@ fn filter_paths(
             );
         }
     }
+        
+    
 
     Ok(filtered_paths)
 }
+
 
 pub fn process(source: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
     let cache_dir = get_cache_dir()?;
@@ -153,6 +157,7 @@ pub fn process(source: Vec<u8>) -> Result<PathBuf, FileHandlerError> {
     Ok(build_dir)
 }
 
+
 pub fn create_return_file(executables: Vec<PathBuf>) -> PathBuf {
     let (file, filepath) = create_file().unwrap();
 
@@ -161,6 +166,6 @@ pub fn create_return_file(executables: Vec<PathBuf>) -> PathBuf {
     filepath
 }
 
-pub fn unzip_executables(archive: Vec<u8>, dest: PathBuf) {
-    decompress_tarball(archive, dest);
+pub fn unzip_executables(archive: Vec<u8>, dest: PathBuf) -> Result<(), FileHandlerError> {
+    decompress_tarball(archive, dest)
 }

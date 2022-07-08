@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -37,11 +38,14 @@ async fn main() {
 
     let mut file = File::open(filepath).unwrap();
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).unwrap();
+    file.read_to_end(&mut buffer).unwrap_or_else(|err| {
+        error!("Failed to read archive to send to build server. Error: {}", err);
+        std::process::exit(1);
+    });
 
     info!("{}", buffer.len());
 
-    server_tx.start_send(Message::Binary(buffer)).unwrap();
+    server_tx.start_send(Message::Binary(buffer.to_vec())).unwrap();
     handle.await.unwrap_or_else(|err| {
         error!("Error waiting for websocket connection: {}", err);
         std::process::exit(1);
