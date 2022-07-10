@@ -5,7 +5,8 @@ use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::mpsc::Sender;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -18,21 +19,27 @@ use tracing::{error, info, warn};
 use crate::cargo::cargo_build;
 use crate::file_handler::{self, process};
 
+mod communication_error;
+use crate::communication::communication_error::CommunicationError;
+
 type Tx = UnboundedSender<Message>;
 type PeerMap = HashMap<SocketAddr, (Option<i32>, Tx)>;
 
 pub async fn create_client_connection(
     rx: UnboundedReceiver<Message>,
-    tx: UnboundedSender<Message>,
-) {
+    tx: Sender<String>,
+) -> Result<(), CommunicationError> {
     let url = url::Url::parse("ws://127.0.0.1:8888").unwrap();
 
-    let ws_stream = match connect_async(url).await {
-        Ok((stream, _)) => stream,
-        Err(_) => return,
-    };
-
+    let (ws_stream, _) = connect_async(url).await?;
     info!("WebSocket handshake has been successfully completed");
+
+    tx.send("listening".to_string()).unwrap_or_else(|err| {
+        error!("Failed to send message back to main thread. Error: {}", err);
+        error!("Aborting");
+        std::process::exit(1);
+    });
+    drop(tx);
 
     let (write, read) = ws_stream.split();
     let send = rx.map(Ok).forward(write);
@@ -50,10 +57,21 @@ pub async fn create_client_connection(
 
             match msg {
                 Message::Binary(binary) => {
-                    file_handler::unzip_executables(binary, Path::new("./").to_path_buf());
+                    let unzipresult =
+                        file_handler::unzip_executables(binary, Path::new("./").to_path_buf());
+                    if unzipresult.is_err() {
+                        error!(
+                            "Failed to decompress executables. Error: {}",
+                            unzipresult.unwrap_err()
+                        );
+                    }
                 }
-                Message::Text(text) => {}
-                Message::Close(msg) => {}
+                Message::Text(text) => {
+                    warn!("Recieved unexpected message: {}", text);
+                }
+                Message::Close(msg) => {
+                    warn!("Recieved close message.");
+                }
                 _ => {}
             }
         })
@@ -61,11 +79,12 @@ pub async fn create_client_connection(
 
     pin_mut!(send, recieve);
     future::select(send, recieve).await;
+    Ok(())
 }
 
 pub async fn create_server_listener() -> Result<(), io::Error> {
     let port = 8888;
-    let addr_ipv4 = format!("192.168.20.4:{}", port);
+    let addr_ipv4 = format!("127.0.0.1:{}", port);
 
     let addr_ipv6 = format!("[::1]:{}", port);
 
@@ -194,8 +213,12 @@ async fn handle_server_connection(
 
                 info!("Build extracted to: {}", build_path.to_string_lossy());
 
-                let executables =
-                    cargo_build(build_path, "x86_64-unknown-linux-gnu".to_string(), false, false);
+                let executables = cargo_build(
+                    build_path,
+                    "x86_64-unknown-linux-gnu".to_string(),
+                    false,
+                    false,
+                );
                 for executable in &executables {
                     info!("To be sent: {}", executable.to_string_lossy());
                 }
@@ -206,7 +229,13 @@ async fn handle_server_connection(
                 let mut return_file = File::open(return_file_path).unwrap();
                 return_file.read_to_end(&mut buffer).unwrap();
 
-                inner_tx.start_send(Message::Binary((buffer)));
+                let result = inner_tx.start_send(Message::Binary(buffer));
+                if result.is_err() {
+                    error!(
+                        "Failed to send compiled binaries to client with address: {}",
+                        addr
+                    );
+                }
             }
             _ => {}
         }
