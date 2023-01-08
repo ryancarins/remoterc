@@ -1,17 +1,15 @@
 use dirs::cache_dir;
-use flate2::bufread::ZlibDecoder;
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
 use jwalk::WalkDir;
 use regex::RegexSet;
 use std::fs;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tar::Archive;
 use tar::Builder;
-use tracing::{event, info, Level};
+use tracing::{event, info, Level, warn};
+use zstd::stream::{Encoder, Decoder};
 
 mod file_handler_error;
 use crate::file_handler::file_handler_error::FileHandlerError;
@@ -77,8 +75,8 @@ fn create_compressed_tarball(
     for path in &files {
         info!("Added path to tarball: {}", path.to_string_lossy());
     }
-
-    let encoder = ZlibEncoder::new(dest_file, Compression::best());
+    let writer = BufWriter::new(dest_file);
+    let encoder = Encoder::new(writer, 1)?;
 
     let mut tar_builder = Builder::new(encoder);
     if files.iter().all(|x| x.is_absolute()) {
@@ -95,15 +93,16 @@ fn create_compressed_tarball(
         }
     }
 
-    let zlib = tar_builder.into_inner()?;
+    let zstd = tar_builder.into_inner()?;
 
-    zlib.finish()?;
+    zstd.finish()?;
+    warn!("Finished writing");
     Ok(())
 }
 
 fn decompress_tarball(src: Vec<u8>, dest: PathBuf) -> Result<(), FileHandlerError> {
     let file_reader = BufReader::new(&*src);
-    let decoder = ZlibDecoder::new(file_reader);
+    let decoder = Decoder::new(file_reader)?;
     let mut archive = Archive::new(decoder);
 
     archive.unpack(dest)?;

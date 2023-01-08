@@ -1,6 +1,7 @@
 use futures_channel::mpsc::unbounded;
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use std::fs::File;
 use std::io;
 use std::io::Read;
@@ -13,7 +14,7 @@ use std::{
 };
 use tokio::net::{TcpListener, TcpStream};
 use tokio::signal;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio_tungstenite::{connect_async_with_config, tungstenite::protocol::Message};
 use tracing::{error, info, warn};
 
 use crate::cargo::cargo_build;
@@ -31,7 +32,11 @@ pub async fn create_client_connection(
 ) -> Result<(), CommunicationError> {
     let url = url::Url::parse("ws://127.0.0.1:8888").unwrap();
 
-    let (ws_stream, _) = connect_async(url).await?;
+    let mut config = WebSocketConfig::default();
+    config.max_frame_size = None;
+    config.max_message_size = Some(usize::MAX);
+
+    let (ws_stream, _) = connect_async_with_config(url, Some(config)).await?;
     info!("WebSocket handshake has been successfully completed");
 
     tx.send("listening".to_string()).unwrap_or_else(|err| {
@@ -177,7 +182,10 @@ async fn handle_server_connection(
 ) {
     info!("Incoming TCP connection from: {}", addr);
 
-    let result = tokio_tungstenite::accept_async(raw_stream).await;
+    let mut config = WebSocketConfig::default();
+    config.max_frame_size = None;
+    config.max_message_size = Some(usize::MAX);
+    let result = tokio_tungstenite::accept_async_with_config(raw_stream, Some(config)).await;
 
     if result.is_err() {
         error!("Error handling connection: {}", result.unwrap_err());
@@ -236,6 +244,7 @@ async fn handle_server_connection(
                         addr
                     );
                 }
+                let result = inner_tx.start_send(Message::Close(None));
             }
             _ => {}
         }

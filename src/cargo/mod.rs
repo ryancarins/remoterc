@@ -10,7 +10,7 @@ pub fn cargo_build(builddir: PathBuf, toolchain: String, release: bool, exe: boo
     target_add(toolchain.clone());
 
     args.push("--target".to_string());
-    args.push(toolchain);
+    args.push(toolchain.clone());
     if release {
         args.push("--release".to_string());
     }
@@ -31,6 +31,7 @@ pub fn cargo_build(builddir: PathBuf, toolchain: String, release: bool, exe: boo
 
     let mut executable_path = builddir;
     executable_path.push("target");
+    executable_path.push(toolchain);
     if release {
         executable_path.push("release");
     } else {

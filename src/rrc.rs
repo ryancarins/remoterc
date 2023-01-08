@@ -46,8 +46,6 @@ async fn main() {
         std::process::exit(1);
     });
 
-    info!("{}", buffer.len());
-
     while let Ok(message) = client_rx.recv() {
         if message != "listening" {
             error!("Failed to create websocket");
